@@ -12,6 +12,10 @@ Part of the [unsigned](https://unsigned.gg) systems ecosystem.
 * **Estate Sensing:** Sensing daemon states, sessions, and live pods.
 * **Audit Trail:** Attestation records and statutory duty clocks.
 
+## Specifications
+* [SPEC-0001: Godseat Control Surface & Policy Gate Tiers](specs/SPEC-0001-godseat-control-surface.md)
+* [SPEC-0002: Proof-Carrying Policy Gates & Gödel Prover Certification](specs/SPEC-0002-goedel-prover-gate-certification.md)
+
 ## License
 Dedicated to the public domain under [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/) or Apache-2.0 / MIT.
 
