@@ -1,0 +1,16 @@
+[package]
+name = "gs-domain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "gs (Godseat Control Surface) - Zero-I/O policy gate lattice, duty clocks, and incident state machines."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
