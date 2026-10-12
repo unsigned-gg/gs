@@ -1,62 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 //! # gs — Godseat Control Surface
 //!
-//! Perception before action, cryptographic gate tiers, and operator cluster sensing.
+//! Perception before action, cryptographic gate tiers, and operator cluster perception.
 //!
-//! Core primitives:
-//! - [`PolicyGate`]: Evaluates gate tiers (Green autonomous, Yellow downgrade, Red operator sign-off, Never sealed refusal).
-//! - [`Perception`]: Unified estate perception across daemons, pods, and agent harnesses.
-//! - [`DutyClock`]: Statutory duty clock tracking for incident management.
+//! Re-exports all zero-I/O domain types from [`gs_domain`] alongside sensing and CLI tools.
 
-use serde::{Deserialize, Serialize};
+#![forbid(unsafe_code)]
 
-/// Policy gate tiers governing estate operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GateTier {
-    /// Green: Autonomous execution allowed under verified invariant proofs.
-    Green,
-    /// Yellow: Downgrade required; operation executes with constrained scope.
-    Yellow,
-    /// Red: Operator sign-off mandatory before execution.
-    Red,
-    /// Never: Sealed refusal; permanently prohibited action.
-    Never,
-}
+pub mod sensing;
 
-/// Evaluates proposed cluster actions against security policies.
-#[derive(Debug, Clone)]
-pub struct PolicyGate {
-    default_tier: GateTier,
-}
+pub use gs_domain::*;
+pub use sensing::{is_paused, pause_flag_paths, probe_tcp_port};
 
-impl PolicyGate {
-    /// Creates a new policy gate evaluator.
-    pub fn new(default_tier: GateTier) -> Self {
-        Self { default_tier }
-    }
-
-    /// Evaluates an action descriptor and returns the gate tier.
-    pub fn evaluate(&self, action: &str) -> GateTier {
-        if action.is_empty() {
-            return GateTier::Never;
-        }
-        self.default_tier
-    }
-}
-
-impl Default for PolicyGate {
-    fn default() -> Self {
-        Self::new(GateTier::Red)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_gate_evaluation() {
-        let gate = PolicyGate::default();
-        assert_eq!(gate.evaluate("cluster:drain"), GateTier::Red);
-        assert_eq!(gate.evaluate(""), GateTier::Never);
-    }
+/// Evaluates a gate tier for an action against a target using safe internal defaults.
+#[must_use]
+pub fn evaluate_gate(action: &str, target: &str) -> (GateTier, String) {
+    let ctx = ActionContext::safe_internal(action, target);
+    classify(&ctx)
 }
