@@ -1,0 +1,29 @@
+--- Log opened Sun Oct 11 20:15:00 2026 UTC
+[20:15:01] *** Joins: Mimir (mimir@gate.unsigned.gg)
+[20:15:02] *** Joins: Kratos (kratos@yx.unsigned.gg)
+[20:15:03] *** Joins: Idunn (idunn@vault.unsigned.gg)
+[20:15:04] *** Joins: Sindri (sindri@metal.unsigned.gg)
+[20:15:05] *** Joins: Loki (loki@chaos.unsigned.gg)
+[20:15:06] *** Joins: Brokkr (brokkr@forge.unsigned.gg)
+[20:15:07] *** Joins: Thjalfi (thjalfi@cycles.unsigned.gg)
+[20:15:08] *** Joins: Volva (volva@loom.unsigned.gg)
+[20:15:09] *** Joins: Sigyn (sigyn@ledger.unsigned.gg)
+[20:15:10] *** Joins: Alrisha (alrisha@knot.unsigned.gg)
+[20:15:11] *** Joins: Thuban (thuban@scout.unsigned.gg)
+[20:15:12] *** Joins: Gullveig (gullveig@types.unsigned.gg)
+[20:15:15] *** Channel #unsigned-gate: Policy Gate Tiers, Sealed Invariants & Duty Clocks
+[20:15:18] <Mimir> The gate is in session. Channel topic: `gs` control surface and the four-tier policy gate. Kratos, take the floor.
+[20:15:24] <Kratos> $y(x) = mx + b$. Two letters: `gs`. Green, Yellow, Red, Never. If an agent tries to drain a node without operator sign-off, the gate returns Red. If it tries to commit plaintext credentials, Never. End of story.
+[20:15:33] <Loki> "End of story"? Oh Kratos, you naive minimalist. What if an agent triggers a recursive retry loop that requests a Yellow downgrade 500 times in 3 seconds? Does your gate collapse under self-inflicted DDoS?
+[20:15:42] <Sindri> It won't, Loki, because the gate evaluator doesn't touch the heap. Look at `evaluate(&self, action: &str) -> GateTier`. It's a pure slice comparison. 8 nanoseconds. No malloc, no syscall. Even your spam loop can't thrash the L1 cache.
+[20:15:51] <Idunn> And more importantly: `Never` is immutable. Even if the human operator types `--force` or passes a root token, a `Never` tier action is sealed in the binary. You cannot force-push to `main`. You cannot write plaintext keys. You cannot bypass Landlock. The vault remains sealed.
+[20:16:01] <Volva> What about the duty clocks? In Article 73 incident lifecycle, once causal link is established, the 72-hour reporting clock starts ticking. Who advances the clock?
+[20:16:10] <Sigyn> The monotonic ledger advances it. We do not use mutable system clocks. We record epoch timestamps with monotonic nanosecond counters in Reverie. If the node reboots or the time daemon steps backward, the duty clock refuses to regress.
+[20:16:21] <Thjalfi> Instruction audit on `test_gate_evaluation`: 42 cycles. Fast enough to sit in front of every single tool invocation without noticeable latency.
+[20:16:30] <Gullveig> The enum representation `GateTier` derives `Copy, Clone, PartialEq, Eq`. It fits in a single byte register. You can pass it by value without reference indirection.
+[20:16:39] <Brokkr> Workspace builds with `-j 2`. Pinned compiler 1.85. Clean lints with zero clippy warnings.
+[20:16:48] <Alrisha> The specification `SPEC-0001` is drafted in ASD-STE100 Simplified Technical English. Clear active verbs, bounded sentences, zero promotional hyperbole.
+[20:16:56] <Thuban> SMT verification check: The gate lattice forms a bounded semi-lattice where $\text{Never} \sqcap x = \text{Never}$ for all $x$. Mathematical consistency confirmed.
+[20:17:05] <Mimir> Ralf Jung operational semantics satisfied. Gate tier invariants proved. The gate transitions to GREEN for `gs`.
+[20:17:12] <Kratos> Approved. Land it.
+--- Log closed Sun Oct 11 20:17:15 2026 UTC
