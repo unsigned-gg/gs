@@ -4,7 +4,10 @@
 use std::env;
 use std::process::ExitCode;
 
-use gs::{evaluate_gate, is_paused, probe_tcp_port, DutyWindow, IncidentRecord};
+use gs::{
+    DutyWindow, GatePrincipalClaims, IncidentRecord, evaluate_gate, evaluate_gate_with_principal,
+    is_paused, probe_tcp_port,
+};
 
 fn print_usage() {
     eprintln!(
@@ -12,7 +15,8 @@ fn print_usage() {
         \n\
         USAGE:\n\
             gs status                Sense estate daemons, pause flags, and health\n\
-            gs gate <action> [target] Classify an action against the 4-tier policy gate\n\
+            gs gate <action> [target] [--principal <uri>] [--act <uri>...] [--scope <s >...] [--trust-domain <td >]\n\
+                                     Classify an action against the 4-tier policy gate\n\
             gs incident demo         Demonstrate Article 73 duty clock lifecycle\n\
             gs --help                Print this help text\n\
             gs --version             Print version information",
@@ -69,9 +73,71 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
             let action = &args[1];
-            let target = args.get(2).map(String::as_str).unwrap_or("cluster");
+            let mut target = "cluster";
+            let mut idx = 2;
+            if let Some(arg) = args.get(2) {
+                if !arg.starts_with("--") {
+                    target = arg.as_str();
+                    idx = 3;
+                }
+            }
 
-            let (tier, reason) = evaluate_gate(action, target);
+            let mut principal: Option<String> = None;
+            let mut delegation_chain: Vec<String> = Vec::new();
+            let mut scopes: Vec<String> = Vec::new();
+            let mut trust_domain = "unsigned.gg".to_owned();
+
+            while idx < args.len() {
+                match args[idx].as_str() {
+                    "--principal" => {
+                        let Some(val) = args.get(idx + 1) else {
+                            eprintln!("error: '--principal' requires a value");
+                            return ExitCode::FAILURE;
+                        };
+                        principal = Some(val.clone());
+                        idx += 2;
+                    }
+                    "--act" => {
+                        let Some(val) = args.get(idx + 1) else {
+                            eprintln!("error: '--act' requires a value");
+                            return ExitCode::FAILURE;
+                        };
+                        delegation_chain.push(val.clone());
+                        idx += 2;
+                    }
+                    "--scope" => {
+                        let Some(val) = args.get(idx + 1) else {
+                            eprintln!("error: '--scope' requires a value");
+                            return ExitCode::FAILURE;
+                        };
+                        scopes.push(val.clone());
+                        idx += 2;
+                    }
+                    "--trust-domain" => {
+                        let Some(val) = args.get(idx + 1) else {
+                            eprintln!("error: '--trust-domain' requires a value");
+                            return ExitCode::FAILURE;
+                        };
+                        trust_domain = val.clone();
+                        idx += 2;
+                    }
+                    flag => {
+                        eprintln!("error: unknown gate option '{flag}'");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
+
+            let (tier, reason) = if let Some(subject) = principal {
+                let claims = GatePrincipalClaims {
+                    subject,
+                    delegation_chain,
+                    scopes,
+                };
+                evaluate_gate_with_principal(action, target, &claims, &trust_domain)
+            } else {
+                evaluate_gate(action, target)
+            };
             println!("Action: {action}");
             println!("Target: {target}");
             println!("Gate Tier: {tier}");
@@ -96,11 +162,14 @@ fn main() -> ExitCode {
                 record.deadline_unix_secs()
             );
 
-            record.establish_link(now + 100).unwrap();
+            if let Err(err) = record.establish_link(now + 100) {
+                eprintln!("gs: failed to establish link: {err}");
+                return ExitCode::FAILURE;
+            }
             println!("  3. Link established at: {}", now + 100);
             println!(
                 "  4. Derived deadline: {}",
-                record.deadline_unix_secs().unwrap()
+                record.deadline_unix_secs().unwrap_or_default()
             );
             println!(
                 "  5. Is breached at now + 500s? {}",

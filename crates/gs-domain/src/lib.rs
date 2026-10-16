@@ -11,5 +11,8 @@
 pub mod gate;
 pub mod incident;
 
-pub use gate::{canonical_action, classify, ActionContext, GateTier};
+pub use gate::{
+    ActionContext, GatePrincipalClaims, GateTier, MAX_DELEGATION_DEPTH, WimsePrincipalKind,
+    canonical_action, classify, classify_with_principal,
+};
 pub use incident::{DutyWindow, IncidentRecord, IncidentState};

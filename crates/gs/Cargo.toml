@@ -17,7 +17,7 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
-gs-domain = { path = "../gs-domain" }
+gs-domain.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
