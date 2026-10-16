@@ -2,38 +2,56 @@ name: CI
 
 on:
   push:
-    branches: [main, development]
+    branches: [main]
   pull_request:
-    branches: [main, development]
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
+  CARGO_INCREMENTAL: 0
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  RUST_BACKTRACE: 1
 
 jobs:
-  check-and-test:
-    name: Check, Lint & Test
+  check:
+    name: Build & Verify (xwork + xtask)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install stable Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain (1.94.1)
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.94.1"
           components: rustfmt, clippy
 
-      - name: Rust cache
+      - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Format check
+      - name: Verify estate hygiene & Wave-0 graph audit
+        run: |
+          cargo xtask hygiene
+          cargo xtask graph-audit --break-check
+
+      - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -j 2 -- -D warnings
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked -j 2 -- -D warnings
 
-      - name: Workspace check
-        run: cargo check --workspace --all-targets -j 2
+      - name: Run Tests
+        run: |
+          cargo test --workspace --locked -j 2
+          cargo test --doc --workspace --locked -j 2
 
-      - name: Run unit tests
-        run: cargo test --workspace -j 2
+      - name: Supply-chain check (cargo-deny)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans sources

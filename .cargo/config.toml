@@ -1,0 +1,16 @@
+# Cargo workspace configuration for gs
+# Host Throttling: Physical host ceres runs multiple active agent sessions.
+# Shared workstations keep jobs=2 to prevent CPU starvation and OOM.
+
+[build]
+jobs = 2
+
+[alias]
+xtask = "run --package xtask --"
+xwork = "run --package xtask -- xwork"
+
+[registries.crates-io]
+protocol = "sparse"
+
+[net]
+git-fetch-with-cli = true

@@ -5,8 +5,8 @@ use std::env;
 use std::process::ExitCode;
 
 use gs::{
-    evaluate_gate, evaluate_gate_with_principal, is_paused, probe_tcp_port, DutyWindow,
-    GatePrincipalClaims, IncidentRecord,
+    DutyWindow, GatePrincipalClaims, IncidentRecord, evaluate_gate, evaluate_gate_with_principal,
+    is_paused, probe_tcp_port,
 };
 
 fn print_usage() {
@@ -162,11 +162,14 @@ fn main() -> ExitCode {
                 record.deadline_unix_secs()
             );
 
-            record.establish_link(now + 100).unwrap();
+            if let Err(err) = record.establish_link(now + 100) {
+                eprintln!("gs: failed to establish link: {err}");
+                return ExitCode::FAILURE;
+            }
             println!("  3. Link established at: {}", now + 100);
             println!(
                 "  4. Derived deadline: {}",
-                record.deadline_unix_secs().unwrap()
+                record.deadline_unix_secs().unwrap_or_default()
             );
             println!(
                 "  5. Is breached at now + 500s? {}",
