@@ -1,0 +1,2 @@
+# LeanSpec marker - specification files live in specs/ (SPEC-NNNN-*.md)
+spec_dirs = ["specs"]

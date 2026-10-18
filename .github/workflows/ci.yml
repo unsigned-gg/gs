@@ -19,7 +19,7 @@ env:
 jobs:
   check:
     name: Build & Verify (xwork + xtask)
-    runs-on: ubuntu-latest
+    runs-on: {group: ent-default, labels: [ci-rust]}    # estate Rust toolchain runner (SOP: ci-runner-always-internal)
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -51,7 +51,36 @@ jobs:
           cargo test --workspace --locked -j 2
           cargo test --doc --workspace --locked -j 2
 
-      - name: Supply-chain check (cargo-deny)
-        uses: EmbarkStudios/cargo-deny-action@v2
+      # The EmbarkStudios action is a container action and needs a Docker
+      # daemon, which estate runners do not have. Install the prebuilt binary
+      # instead, as revenant does.
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
         with:
-          command: check licenses bans sources
+          tool: cargo-deny
+
+      - name: Supply-chain check (cargo-deny)
+        run: cargo deny check licenses bans sources
+
+  # LeanSpec PR gate (estate standard CER-2890; CER-2966). The lsc step is a
+  # stub until vilicus ships the pinned lsc binary and its reusable job.
+  # spec-link warns without failing until the history backfill is done.
+  leanspec:
+    name: leanspec
+    if: github.event_name == 'pull_request'
+    runs-on: {group: ent-default, labels: [self-hosted]}    # estate runner fleet (SOP: ci-runner-always-internal)
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: lsc check (stub)
+        run: echo "::notice title=lsc::lsc check specs/ is pending the pinned lsc binary and reusable job from vilicus"
+
+      - name: spec-link (warning)
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: scripts/ci/spec-link-check.sh "$PR_BASE"
