@@ -417,8 +417,60 @@ impl GatePrincipalClaims {
     }
 }
 
+/// How a set of principal claims was verified before it reached the gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaimsVerification {
+    /// An OAuth2 token introspected at the authorization server (Ory Hydra).
+    Introspection,
+    /// A JWT-SVID whose signature and trust bundle were verified.
+    JwtSvid,
+}
+
+impl ClaimsVerification {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Introspection => "introspected token",
+            Self::JwtSvid => "verified JWT-SVID",
+        }
+    }
+}
+
+/// Principal claims a verifier has authenticated. Only these can raise a tier
+/// ([`classify_with_principal`]); claims taken from anywhere else go through
+/// [`classify_with_claimed_principal`], which cannot (SEC-179).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedPrincipalClaims {
+    claims: GatePrincipalClaims,
+    via: ClaimsVerification,
+}
+
+impl VerifiedPrincipalClaims {
+    /// Wrap claims that `via` authenticated.
+    ///
+    /// This crate does no I/O and cannot check a token, so calling this is the
+    /// caller's assertion that the verification happened. Call it next to the
+    /// verification and nowhere else: never on command-line or request input.
+    #[must_use]
+    pub fn from_verified(claims: GatePrincipalClaims, via: ClaimsVerification) -> Self {
+        Self { claims, via }
+    }
+
+    /// The verified claims.
+    #[must_use]
+    pub fn claims(&self) -> &GatePrincipalClaims {
+        &self.claims
+    }
+
+    /// How they were verified.
+    #[must_use]
+    pub fn via(&self) -> ClaimsVerification {
+        self.via
+    }
+}
+
 /// Classifies an action with WIMSE (`draft-klrc-aiagent-auth-03`) principal verification
-/// and RFC 8693 `act` delegation chain enforcement.
+/// and RFC 8693 `act` delegation chain enforcement, for claims a verifier has
+/// authenticated.
 ///
 /// - Invalid principals, foreign SPIFFE trust domains, or cyclic/over-depth `act` chains
 ///   are immediately sealed (`GateTier::Never`).
@@ -426,11 +478,43 @@ impl GatePrincipalClaims {
 ///   RFC 8693 `act` chain includes a verified human operator delegator (`user:<id>` or
 ///   `operator:<id>`) and the explicit approval scope `gate:approve:<canonical-action>`
 ///   (or `estate:admin`).
+/// - A `GateTier::Green` action without the scope `gate:<canonical-action>` or
+///   `gate:*` is `GateTier::Yellow`.
 #[must_use]
 pub fn classify_with_principal(
     ctx: &ActionContext,
+    verified: &VerifiedPrincipalClaims,
+    expected_trust_domain: &str,
+) -> (GateTier, String) {
+    classify_claims(
+        ctx,
+        verified.claims(),
+        expected_trust_domain,
+        Some(verified.via()),
+    )
+}
+
+/// Classifies an action for claims nobody has verified, such as `gs gate --principal`.
+///
+/// The result is never a higher-trust tier than [`classify`] gives the action: an
+/// operator subject, an operator in the `act` chain and any scope are all ignored for
+/// elevation. Claims can only lower the result (invalid claims seal it, a missing
+/// `gate:` scope turns `Green` into `Yellow`).
+#[must_use]
+pub fn classify_with_claimed_principal(
+    ctx: &ActionContext,
     claims: &GatePrincipalClaims,
     expected_trust_domain: &str,
+) -> (GateTier, String) {
+    classify_claims(ctx, claims, expected_trust_domain, None)
+}
+
+/// The shared rules. `verified_via` is `Some` only for claims a verifier authenticated.
+fn classify_claims(
+    ctx: &ActionContext,
+    claims: &GatePrincipalClaims,
+    expected_trust_domain: &str,
+    verified_via: Option<ClaimsVerification>,
 ) -> (GateTier, String) {
     let subject_kind = match claims.validate(expected_trust_domain) {
         Ok(kind) => kind,
@@ -452,34 +536,51 @@ pub fn classify_with_principal(
 
     match base_tier {
         GateTier::Red | GateTier::Yellow => {
-            if subject_kind.is_operator()
+            let would_elevate = subject_kind.is_operator()
                 || (claims.has_operator_delegator()
-                    && (claims.has_scope(&approval_scope) || claims.has_scope("estate:admin")))
-            {
-                (
+                    && (claims.has_scope(&approval_scope) || claims.has_scope("estate:admin")));
+            match (would_elevate, verified_via) {
+                (true, Some(via)) => (
                     GateTier::Green,
                     format!(
-                        "'{}' authorized via verified RFC 8693 operator delegation for '{}' — calm face",
-                        ctx.action, claims.subject
+                        "'{}' authorized via RFC 8693 operator delegation for '{}' ({}) — calm face",
+                        ctx.action,
+                        claims.subject,
+                        via.label()
                     ),
-                )
-            } else {
-                (
+                ),
+                (true, None) => (
+                    GateTier::Red,
+                    format!(
+                        "{base_reason} (principal '{}' is unverified; unverified claims cannot raise a tier)",
+                        claims.subject
+                    ),
+                ),
+                (false, _) => (
                     GateTier::Red,
                     format!(
                         "{base_reason} (principal '{}' lacks operator act delegation and '{approval_scope}' scope)",
                         claims.subject
                     ),
+                ),
+            }
+        }
+        GateTier::Green => {
+            if claims.has_scope(&format!("gate:{action}")) || claims.has_scope("gate:*") {
+                (
+                    GateTier::Green,
+                    format!("{base_reason} (principal '{}')", claims.subject),
+                )
+            } else {
+                (
+                    GateTier::Yellow,
+                    format!(
+                        "{base_reason} (principal '{}' lacks the 'gate:{action}' scope — downgraded)",
+                        claims.subject
+                    ),
                 )
             }
         }
-        GateTier::Green => (
-            GateTier::Green,
-            format!(
-                "{base_reason} (verified WIMSE principal '{}')",
-                claims.subject
-            ),
-        ),
         GateTier::Never => (GateTier::Never, base_reason),
     }
 }
@@ -532,28 +633,32 @@ mod tests {
         assert_eq!(tier, GateTier::Red);
     }
 
+    fn verified(claims: GatePrincipalClaims) -> VerifiedPrincipalClaims {
+        VerifiedPrincipalClaims::from_verified(claims, ClaimsVerification::JwtSvid)
+    }
+
     #[test]
     fn test_wimse_principal_and_rfc8693_delegation_at_gate() {
         let red_ctx = ActionContext::safe_internal("secret-rotate", "openbao/prod");
 
         // Agent without operator delegation remains Red.
-        let unapproved_agent = GatePrincipalClaims {
+        let unapproved_agent = verified(GatePrincipalClaims {
             subject: "spiffe://unsigned.gg/agent/estate/builder-01".to_owned(),
             delegation_chain: vec!["spiffe://unsigned.gg/agent/estate/coordinator-01".to_owned()],
             scopes: vec!["estate:admin".to_owned()],
-        };
+        });
         let (tier, _) = classify_with_principal(&red_ctx, &unapproved_agent, "unsigned.gg");
         assert_eq!(tier, GateTier::Red);
 
-        // Agent with operator in RFC 8693 act chain + explicit gate scope upgrades Red -> Green.
-        let delegated_agent = GatePrincipalClaims {
+        // Verified agent with operator in RFC 8693 act chain + explicit gate scope upgrades Red -> Green.
+        let delegated_agent = verified(GatePrincipalClaims {
             subject: "spiffe://unsigned.gg/agent/estate/builder-01".to_owned(),
             delegation_chain: vec![
                 "spiffe://unsigned.gg/agent/estate/coordinator-01".to_owned(),
                 "user:ctodie".to_owned(),
             ],
             scopes: vec!["gate:approve:secret-rotate".to_owned()],
-        };
+        });
         let (tier, _) = classify_with_principal(&red_ctx, &delegated_agent, "unsigned.gg");
         assert_eq!(tier, GateTier::Green);
 
@@ -566,12 +671,79 @@ mod tests {
         let (tier, _) = classify_with_principal(&red_ctx, &delegated_agent, "other.domain");
         assert_eq!(tier, GateTier::Never);
 
-        let cyclic = GatePrincipalClaims {
+        let cyclic = verified(GatePrincipalClaims {
             subject: "spiffe://unsigned.gg/agent/estate/builder-01".to_owned(),
             delegation_chain: vec!["spiffe://unsigned.gg/agent/estate/builder-01".to_owned()],
             scopes: vec![],
-        };
+        });
         let (tier, _) = classify_with_principal(&red_ctx, &cyclic, "unsigned.gg");
         assert_eq!(tier, GateTier::Never);
+    }
+
+    /// SEC-179: the same claims that elevate when verified never elevate when
+    /// they are only claimed, for every route to elevation.
+    #[test]
+    fn unverified_claims_never_raise_a_tier() {
+        let agent = "spiffe://unsigned.gg/agent/estate/builder-01";
+        let claim_sets = [
+            // An operator subject.
+            GatePrincipalClaims::new("user:anyone"),
+            GatePrincipalClaims::new("operator:anyone"),
+            // An operator in the chain with the approval scope, and with estate:admin.
+            GatePrincipalClaims {
+                subject: agent.to_owned(),
+                delegation_chain: vec!["user:ctodie".to_owned()],
+                scopes: vec!["gate:approve:secret-rotate".to_owned()],
+            },
+            GatePrincipalClaims {
+                subject: agent.to_owned(),
+                delegation_chain: vec!["user:ctodie".to_owned()],
+                scopes: vec!["estate:admin".to_owned()],
+            },
+        ];
+        let red_ctx = ActionContext::safe_internal("secret-rotate", "openbao/prod");
+        let (base, _) = classify(&red_ctx);
+        assert_eq!(base, GateTier::Red);
+        for claims in &claim_sets {
+            let (tier, reason) = classify_with_claimed_principal(&red_ctx, claims, "unsigned.gg");
+            assert_eq!(tier, GateTier::Red, "{claims:?}: {reason}");
+            // The same claims, verified, do elevate: the split is the only difference.
+            let (tier, _) =
+                classify_with_principal(&red_ctx, &verified(claims.clone()), "unsigned.gg");
+            assert_eq!(tier, GateTier::Green, "{claims:?} verified");
+        }
+        // A Yellow base never rises either.
+        let mut yellow = ActionContext::safe_internal("merge-to-main", "repo-kd");
+        yellow.ground_truth_certain = false;
+        for claims in &claim_sets {
+            let (tier, reason) = classify_with_claimed_principal(&yellow, claims, "unsigned.gg");
+            assert_ne!(tier, GateTier::Green, "{claims:?}: {reason}");
+        }
+    }
+
+    /// The PR 6 downgrade: a Green action needs the `gate:<action>` or `gate:*` scope.
+    #[test]
+    fn green_without_a_gate_scope_is_yellow() {
+        let green_ctx = ActionContext::safe_internal("merge-to-main", "repo-kd");
+        assert_eq!(classify(&green_ctx).0, GateTier::Green);
+        let agent = "spiffe://unsigned.gg/agent/estate/builder-01";
+        let with_scopes = |scopes: &[&str]| GatePrincipalClaims {
+            subject: agent.to_owned(),
+            delegation_chain: Vec::new(),
+            scopes: scopes.iter().map(|s| (*s).to_owned()).collect(),
+        };
+        for (scopes, want) in [
+            (&[][..], GateTier::Yellow),
+            (&["estate:admin"][..], GateTier::Yellow),
+            (&["gate:other-action"][..], GateTier::Yellow),
+            (&["gate:merge-to-main"][..], GateTier::Green),
+            (&["gate:*"][..], GateTier::Green),
+        ] {
+            let claims = with_scopes(scopes);
+            let (tier, _) = classify_with_claimed_principal(&green_ctx, &claims, "unsigned.gg");
+            assert_eq!(tier, want, "claimed {scopes:?}");
+            let (tier, _) = classify_with_principal(&green_ctx, &verified(claims), "unsigned.gg");
+            assert_eq!(tier, want, "verified {scopes:?}");
+        }
     }
 }

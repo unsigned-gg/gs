@@ -5,8 +5,8 @@ use std::env;
 use std::process::ExitCode;
 
 use gs::{
-    DutyWindow, GatePrincipalClaims, IncidentRecord, evaluate_gate, evaluate_gate_with_principal,
-    is_paused, probe_tcp_port,
+    DutyWindow, GatePrincipalClaims, IncidentRecord, evaluate_gate,
+    evaluate_gate_with_claimed_principal, is_paused, probe_tcp_port,
 };
 
 fn print_usage() {
@@ -16,7 +16,9 @@ fn print_usage() {
         USAGE:\n\
             gs status                Sense estate daemons, pause flags, and health\n\
             gs gate <action> [target] [--principal <uri>] [--act <uri>...] [--scope <s >...] [--trust-domain <td >]\n\
-                                     Classify an action against the 4-tier policy gate\n\
+                                     Classify an action against the 4-tier policy gate;\n\
+                                     principal flags are unverified and can only lower the tier\n\
+                                     (<uri> is spiffe://<trust-domain>/agent/<team>/<id>, user:<id> or operator:<id>)\n\
             gs incident demo         Demonstrate Article 73 duty clock lifecycle\n\
             gs --help                Print this help text\n\
             gs --version             Print version information",
@@ -134,7 +136,8 @@ fn main() -> ExitCode {
                     delegation_chain,
                     scopes,
                 };
-                evaluate_gate_with_principal(action, target, &claims, &trust_domain)
+                // Flags are not verified claims: they can lower a result, never raise it.
+                evaluate_gate_with_claimed_principal(action, target, &claims, &trust_domain)
             } else {
                 evaluate_gate(action, target)
             };
