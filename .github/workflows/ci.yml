@@ -12,7 +12,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
+  CARGO_INCREMENTAL: "0"
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
   RUST_BACKTRACE: 1
 
@@ -30,10 +30,13 @@ jobs:
           toolchain: "1.94.1"
           components: rustfmt, clippy
 
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+      - name: Rust build cache (kache)
+        uses: kunobi-ninja/kache-action@ad7317540dcdd71c904f7a60a87b620a0c0e67ed # v2.0.0
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          version: "2.0.0"
+          cache-executables: "false"
+          github-cache: "true"
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Verify estate hygiene & Wave-0 graph audit
         run: |
