@@ -19,7 +19,9 @@ env:
 jobs:
   check:
     name: Build & Verify (xwork + xtask)
-    runs-on: {group: ent-default, labels: [ci-rust]}    # estate Rust toolchain runner (SOP: ci-runner-always-internal)
+    # OPS-1695: this repository is public. Pull requests run on a GitHub-hosted runner; a push to main
+    # runs on the internal ent-public-push group, which admits only main-branch workflows of this repo.
+    runs-on: ${{ github.event_name == 'push' && fromJSON('{"group":"ent-public-push","labels":["public-push"]}') || 'ubuntu-latest' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -71,7 +73,7 @@ jobs:
   leanspec:
     name: leanspec
     if: github.event_name == 'pull_request'
-    runs-on: {group: ent-default, labels: [self-hosted]}    # estate runner fleet (SOP: ci-runner-always-internal)
+    runs-on: ubuntu-latest    # pull requests only; OPS-1695: PR jobs of public repos run hosted
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
